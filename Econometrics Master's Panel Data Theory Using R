@@ -1,0 +1,575 @@
+rm(list=ls())
+
+setwd("C:/Users/U66243/Desktop/Bakup/Maestria Econometria/Paneles")
+
+
+library(na.tools)
+library(haven)
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+library(readxl)
+library(devtools)
+library(plm) # instalarlo previamente
+library(MASS)
+library(stargazer)
+library(PanelCount)
+library(panelvar)
+library(lmtest)
+library(glmnet)
+library(margins)
+library(Matrix)
+library(lme4)
+library(pglm)
+library(mfx)
+library("betareg") 
+library("sandwich") 
+
+###################### Ejercicio 1#####################
+### MODELO A N=100 t=2 ######################
+set.seed(4830)
+n=100
+t=2
+NT=n*t
+
+margins<-c()
+Monte_carlos<-matrix(ncol=1000, nrow=3) #Guardar las simulaciones
+
+for( i in 1:1000){
+  
+  id<-sort(rep(seq(1:n),t))
+  time<-rep(seq(1:t),n)
+  z<-rnorm(NT, 0,1)
+  x<-rnorm(NT, 0,1)
+  e<-rnorm(NT, 0,1)
+  p1<-rnorm(NT, 0,1)
+  u<-0.6*e+0.8*p1
+  p2<-sort(rep(rnorm(n, 0,1),t))
+  p3<-sort(rep(rnorm(n, 0,1),t))
+  p4<-sort(rep(rnorm(n, 0,1),t))
+  Matrix_data<-data.frame(id, time, z,x,e,p1,u,p2,p3,p4)
+  
+  mean_z <- aggregate(z ~ id, data = Matrix_data, FUN = mean)# construimos la variable mean_z
+  names(mean_z)[2]<-paste("mean_z")
+  mean_x <- aggregate(x~ id, data = Matrix_data, FUN = mean) # construimos la variable mean_x
+  names(mean_x)[2]<-paste("mean_x")
+  
+  Matrix_data<-merge(merge(Matrix_data, mean_z,  by="id"), mean_x, by="id") # agregamos mean_x y mean_z a la base
+  
+  Matrix_data$a=Matrix_data$p2+Matrix_data$p4
+  Matrix_data$c=Matrix_data$p3+Matrix_data$p4
+  Matrix_data$y=Matrix_data$x+Matrix_data$c+Matrix_data$u
+  Matrix_data$s=Matrix_data$x+Matrix_data$z+Matrix_data$a+Matrix_data$e
+  Matrix_data$s_obs<-ifelse(Matrix_data$s>0,1,0)
+  Matrix_data$y_obs<-Matrix_data$s_obs*Matrix_data$y
+ 
+   #Estimamos la ecuacion de seleccion
+  Probit <- glm(s_obs ~ x + z + mean_x + mean_z -1, data = Matrix_data, family= binomial(link = "probit"))
+  summary(Probit)
+  
+  Matrix_data$sitf<-Probit$fitted.values
+  # Estimamos la inversa del ratio de Mill
+  Matrix_data$lamndait<-dnorm(Matrix_data$sitf)/pnorm(Matrix_data$sitf)
+  
+  
+  ###### Creamos las dummies temporales 
+  tmax <- max(time) - min(time) + 1
+  for (j in 1:tmax) {
+    Matrix_data[[paste0("T", j)]] <- as.numeric(time == j)*Matrix_data$lamndait}
+  
+  ###### Estimamos la ecuacion principal 
+  
+  Wooldridge <- plm(y_obs ~ x  + mean_x + mean_z + lamndait+T2, data= Matrix_data, subset= s_obs==1 , index=c("id", "time") , effect= "individual", model = "pooling")
+  summary(Wooldridge)
+  
+  # guardamos los coeficientes
+  Monte_carlos[1,i]<-summary(Probit)$coefficient[1]
+  Monte_carlos[2,i]<-summary(Probit)$coefficient[2]
+  Monte_carlos[3,i]<-summary(Wooldridge)$coefficient[2]
+  print(i)
+}
+
+esperanza1A<- apply(Monte_carlos, 1, mean)
+mediana1A<-apply(Monte_carlos, 1, median)
+Desvio1A<- apply(Monte_carlos, 1, sd)
+mse_result1A<- apply(Monte_carlos, 1, function(x) sqrt(mean(sum(x-1)^2)))
+desvio_abs1A<- apply(Monte_carlos, 1, function(x) mean(abs(x-1)))
+Matrix_Resum1A<-data.frame(esperanza1A, mediana1A, Desvio1A, mse_result1A, desvio_abs1A) 
+
+### MODELO A B y C  #####################
+#### Como la estructura de las r?plicas son similares, las ejecutamos desde el pr?ximo archivo auxiliar
+
+source("C:/Users/U66243/Desktop/Bakup/Maestria Econometria/Paneles/R_ejercicio1.R")
+
+################# PUNTO 2. A N=100 ##########################################################
+set.seed(4830)
+n=100
+t=10
+NT=n*t
+# Guardamos las pr?ximas replicas de MC en una lista
+Muestras_Monte_carlos<- list()
+
+Monte_carlos<-matrix(ncol=1000, nrow=3)
+
+for( i in 1:1000){
+  
+  id<-sort(rep(seq(1:n),t))
+  time<-rep(seq(1:t),n)
+  z<-rnorm(NT, 0,1)
+  x<-rnorm(NT, 0,1)
+  e<-rnorm(NT, 0,1)
+  p1<-rnorm(NT, 0,1)
+  u<-0.6*e+0.8*p1
+  p2<-sort(rep(rnorm(n, 0,1),t))
+  p3<-sort(rep(rnorm(n, 0,1),t))
+  p4<-sort(rep(rnorm(n, 0,1),t))
+  Matrix_data<-data.frame(id, time, z,x,e,p1,u,p2,p3,p4)
+  
+  mean_z <- aggregate(z~ id, data = Matrix_data, FUN = mean)
+  names(mean_z)[2]<-paste("mean_z")
+  mean_x <- aggregate(x~ id, data = Matrix_data, FUN = mean)
+  names(mean_x)[2]<-paste("mean_x")
+  
+  Matrix_data<-merge(merge(Matrix_data, mean_z,  by="id"), mean_x, by="id")
+  
+  Matrix_data$a=Matrix_data$p2+Matrix_data$p4
+  Matrix_data$c=Matrix_data$p3+Matrix_data$p4
+  Matrix_data$y=Matrix_data$x+Matrix_data$c+Matrix_data$u
+  Matrix_data$s=Matrix_data$x+Matrix_data$z+Matrix_data$a+Matrix_data$e
+  Matrix_data$s_obs<-ifelse(Matrix_data$s>0,1,0)
+  Matrix_data$y_obs<-Matrix_data$s_obs*Matrix_data$y
+  
+    Muestras_Monte_carlos[[i]] <- Matrix_data
+  
+  print(i)
+  
+}
+# Tomamos la muestra 1 de MC
+S1<-data.frame(Muestras_Monte_carlos[1])
+# Construimos la base S1_guardar para levantarla desde stata 
+S1_guardar<-S1[,-c(11,12)]
+write.table(S1_guardar, "S1.csv", row.names = FALSE, sep=(";"))
+
+Probit <- glm(s_obs ~ x + mean_x + mean_z + z-1, data = S1,family= binomial(link = "probit"))
+
+summary(Probit)
+
+S1$sitf<-Probit$fitted.values
+
+S1$lamndait<-dnorm(S1$sitf)/pnorm(S1$sitf)
+length(S1$lamndait)
+tmax <- max(time) - min(time) + 1
+for (i in 1:tmax) {
+  S1[[paste0("T", i)]] <- as.numeric(time == i)*S1$lamndait}
+
+WooldridgeA <- plm(y_obs ~ x  + mean_x + mean_z + lamndait+T2+T3+T4+T5+T6+T7+T8+T9+T10, data= S1, subset= s_obs==1 , index=c("id", "time") , effect= "individual", model = "pooling")
+summary(WooldridgeA)
+
+gamma1<-summary(Probit)$coefficient[1]
+gamma2<-summary(Probit)$coefficient[4]
+beta1<-summary(WooldridgeA)$coefficient[2]
+S1$resid_selec<-residuals(Probit)
+
+################# PUNTO 2. B N=100 ##########################################################
+set.seed(4830)
+n=100
+t=10
+NT=n*t
+# Guardamos las pr?ximas replicas de MC en una lista
+Muestras_Monte_carlos<- list()
+
+Monte_carlos<-matrix(ncol=1000, nrow=3)
+
+for( i in 1:1000){
+  
+  id<-sort(rep(seq(1:n),t))
+  time<-rep(seq(1:t),n)
+  z<-rnorm(NT, 0,1)
+  x<-rnorm(NT, 0,1)
+  e<-rnorm(NT, 0,1)
+  p1<-rnorm(NT, 0,1)
+  u<-0.6*e+0.8*p1
+  p2<-sort(rep(rnorm(n, 0,1),t))
+  p3<-sort(rep(rnorm(n, 0,1),t))
+  p4<-sort(rep(rnorm(n, 0,1),t))
+  Matrix_data<-data.frame(id, time, z,x,e,p1,u,p2,p3,p4)
+  
+  mean_z <- aggregate(z~ id, data = Matrix_data, FUN = mean)
+  names(mean_z)[2]<-paste("mean_z")
+  mean_x <- aggregate(x~ id, data = Matrix_data, FUN = mean)
+  names(mean_x)[2]<-paste("mean_x")
+  
+  Matrix_data<-merge(merge(Matrix_data, mean_z,  by="id"), mean_x, by="id")
+  
+  Matrix_data$a=Matrix_data$p2+Matrix_data$mean_z
+  Matrix_data$c=Matrix_data$p3+Matrix_data$mean_x
+  Matrix_data$y=Matrix_data$x+Matrix_data$c+Matrix_data$u
+  Matrix_data$s=Matrix_data$x+Matrix_data$z+Matrix_data$a+Matrix_data$e
+  Matrix_data$s_obs<-ifelse(Matrix_data$s>0,1,0)
+  Matrix_data$y_obs<-Matrix_data$s_obs*Matrix_data$y
+  
+  Muestras_Monte_carlos[[i]] <- Matrix_data
+  
+  print(i)
+  
+}
+# Tomamos la muestra 1 de MC
+S1_B<-data.frame(Muestras_Monte_carlos[1])
+# Construimos la base S1_guardar para levantarla desde stata 
+S1_guardar_B<-S1_B[,-c(11,12)]
+write.table(S1_guardar_B, "S1_B.csv", row.names = FALSE, sep=(";"))
+
+Probit <- glm(s_obs ~ x + mean_x + mean_z + z-1, data = S1_B,family= binomial(link = "probit"))
+
+summary(Probit)
+
+S1_B$sitf<-Probit$fitted.values
+
+S1_B$lamndait<-dnorm(S1_B$sitf)/pnorm(S1_B$sitf)
+length(S1_B$lamndait)
+tmax <- max(time) - min(time) + 1
+for (i in 1:tmax) {
+  S1_B[[paste0("T", i)]] <- as.numeric(time == i)*S1_B$lamndait}
+
+WooldridgeB <- plm(y_obs ~ x  + mean_x + mean_z + lamndait+T2+T3+T4+T5+T6+T7+T8+T9+T10, data= S1_B, subset= s_obs==1 , index=c("id", "time") , effect= "individual", model = "pooling")
+summary(WooldridgeB)
+
+gamma1<-summary(Probit)$coefficient[1]
+gamma2<-summary(Probit)$coefficient[4]
+beta1<-summary(WooldridgeB)$coefficient[2]
+S1_B$resid_selec<-residuals(Probit)
+
+################# PUNTO 2. c N=100 ##########################################################
+set.seed(4830)
+n=100
+t=10
+NT=n*t
+# Guardamos las pr?ximas replicas de MC en una lista
+Muestras_Monte_carlos<- list()
+
+Monte_carlos<-matrix(ncol=1000, nrow=3)
+
+for( i in 1:1000){
+  
+  id<-sort(rep(seq(1:n),t))
+  time<-rep(seq(1:t),n)
+  z<-rnorm(NT, 0,1)
+  x<-rnorm(NT, 0,1)
+  e<-rnorm(NT, 0,1)
+  p1<-rnorm(NT, 0,1)
+  u<-0.6*e+0.8*p1
+  p2<-sort(rep(rnorm(n, 0,1),t))
+  p3<-sort(rep(rnorm(n, 0,1),t))
+  p4<-sort(rep(rnorm(n, 0,1),t))
+  Matrix_data<-data.frame(id, time, z,x,e,p1,u,p2,p3,p4)
+  
+  mean_z <- aggregate(z~ id, data = Matrix_data, FUN = mean)
+  names(mean_z)[2]<-paste("mean_z")
+  mean_x <- aggregate(x~ id, data = Matrix_data, FUN = mean)
+  names(mean_x)[2]<-paste("mean_x")
+  
+  Matrix_data<-merge(merge(Matrix_data, mean_z,  by="id"), mean_x, by="id")
+  
+  Matrix_data$a=Matrix_data$p2+Matrix_data$mean_z+Matrix_data$p4
+  Matrix_data$c=Matrix_data$p3+Matrix_data$mean_x+Matrix_data$p4
+  Matrix_data$y=Matrix_data$x+Matrix_data$c+Matrix_data$u
+  Matrix_data$s=Matrix_data$x+Matrix_data$z+Matrix_data$a+Matrix_data$e
+  Matrix_data$s_obs<-ifelse(Matrix_data$s>0,1,0)
+  Matrix_data$y_obs<-Matrix_data$s_obs*Matrix_data$y
+  
+  Muestras_Monte_carlos[[i]] <- Matrix_data
+  
+  print(i)
+  
+}
+# Tomamos la muestra 1 de MC
+S1_C<-data.frame(Muestras_Monte_carlos[1])
+# Construimos la base S1_guardar para levantarla desde stata 
+S1_guardar_C<-S1_C[,-c(11,12)]
+write.table(S1_guardar_C, "S1_C.csv", row.names = FALSE, sep=(";"))
+
+Probit <- glm(s_obs ~ x + mean_x + mean_z + z-1, data = S1_C,family= binomial(link = "probit"))
+
+summary(Probit)
+
+S1_C$sitf<-Probit$fitted.values
+
+S1_C$lamndait<-dnorm(S1_C$sitf)/pnorm(S1_C$sitf)
+length(S1_C$lamndait)
+tmax <- max(time) - min(time) + 1
+for (i in 1:tmax) {
+  S1_C[[paste0("T", i)]] <- as.numeric(time == i)*S1_C$lamndait}
+
+WooldridgeC <- plm(y_obs ~ x  + mean_x + mean_z + lamndait+T2+T3+T4+T5+T6+T7+T8+T9+T10, data= S1_C, subset= s_obs==1 , index=c("id", "time") , effect= "individual", model = "pooling")
+summary(WooldridgeC)
+
+gamma1<-summary(Probit)$coefficient[1]
+gamma2<-summary(Probit)$coefficient[4]
+beta1<-summary(WooldridgeC)$coefficient[2]
+S1_C$resid_selec<-residuals(Probit)
+
+#################################################################
+########################### 1 c # MODELO A #########################################
+
+Boostrap<-matrix(ncol=1000, nrow=3)
+SB<- list()
+
+for(i in 1:1000){
+
+j=dim(S1)[1]
+id.train = sample(j,j, replace = TRUE) 
+Muestra<-S1[id.train,]
+
+e_boostrap<-Muestra$resid_selec
+s_boostrap<-gamma1*Muestra$x+gamma2*Muestra$z+Muestra$c+e_boostrap
+y_boostrap<-beta1*Muestra$x+Muestra$a
+s_obb<-ifelse(s_boostrap>0,1,0)
+y_obsb<-y_boostrap*s_obb
+
+Muestra<-data.frame(Muestra, e_boostrap, s_boostrap,y_boostrap, s_obb, y_obsb)
+Probit <- glm(s_obs ~ x + mean_x + mean_z + z-1, data = Muestra,family= binomial(link = "probit"))
+
+summary(Probit)
+
+Muestra$sitf<-Probit$fitted.values
+
+Muestra$lamndait<-dnorm(Muestra$sitf)/pnorm(Muestra$sitf)
+
+Wooldridge<- plm(y_obs ~ x  + mean_x + mean_z + lamndait+T2+T3+T4+T5+T6+T7+T8+T9+T10, data= Muestra, subset= s_obs==1 , index=c("id", "time") , effect= "individual", model = "pooling")
+summary(Wooldridge)
+
+Boostrap[1,i]<-summary(Probit)$coefficient[1]
+Boostrap[2,i]<-summary(Probit)$coefficient[4]
+Boostrap[3,i]<-summary(Wooldridge)$coefficient[2]
+
+print(i)
+
+}
+esperanza<- apply(Boostrap, 1, mean)
+mediana<-apply(Boostrap, 1, median)
+Desvio<- apply(Boostrap, 1, sd)
+mse_result<- apply(Boostrap, 1, function(x) sqrt(mean(sum(x-1)^2)))
+desvio_abs<- apply(Boostrap, 1, function(x) mean(abs(x-1)))
+
+percentil_inf <- apply(Boostrap,1,function(x) quantile(x, probs = 0.025))
+percentil_sup <- apply(Boostrap,1,function(x) quantile(x, probs = 0.975))
+
+Umbrales_95<-cbind(percentil_inf, percentil_sup)
+
+shapiro.test(Boostrap[3,])
+alpha = 0.05
+L<-as.numeric(beta1 - qnorm((1-alpha/2))*summary(WooldridgeA)$coefficients[, "Std. Error"][2])
+H<-as.numeric(beta1 + qnorm((1-alpha/2))*summary(WooldridgeA)$coefficients[, "Std. Error"][2])
+La<-as.numeric(0.953  - qnorm(1-alpha/2)*0.086)# Estos valores surge de ejecutar el archivo xxxx en stata. 
+Ha<-as.numeric(0.953 + qnorm(1-alpha/2)*0.086)# Estos valores surge de ejecutar el archivo xxxx en stata.
+Hb<-as.numeric(Umbrales_95[3,2])
+Lb<-as.numeric(Umbrales_95[3,1])
+
+X11()
+plot(density(Boostrap[3,]), lwd = 2, col = "red",
+     main = "Two-step Wooldridge estimator ?? Model A", xlab = "??",
+     xlim = c(0.5, 1.4),  # Mínimo y máximo limites eje X
+     ylim = c(0, 4))
+abline(v = L, col = "blue", lwd = 2)
+abline(v = H, col = "blue", lwd = 2)
+abline(v = La, col = "green", lwd = 2)
+abline(v = Ha, col = "green", lwd = 2)
+abline(v = Lb, col = "chocolate", lwd = 2)
+abline(v = Hb, col = "chocolate", lwd = 2)
+
+legend(x = "topright",          # Position
+       legend = c("OLS", "Bootstrap","Avar"),  # Legend texts
+       lty = c(1, 1,1),           # Line types
+       col = c("blue", "chocolate", "green"),           # Line colors
+       lwd = 0, 
+       cex=1)   
+######################## MODELO B #######################################
+Boostrap<-matrix(ncol=1000, nrow=3)
+SB<- list()
+
+for(i in 1:1000){
+  
+  j=dim(S1)[1]
+  id.train = sample(j,j, replace = TRUE) 
+  Muestra<-S1_B[id.train,]
+  
+  e_boostrap<-Muestra$resid_selec
+  s_boostrap<-gamma1*Muestra$x+gamma2*Muestra$z+Muestra$c+e_boostrap
+  y_boostrap<-beta1*Muestra$x+Muestra$a
+  s_obb<-ifelse(s_boostrap>0,1,0)
+  y_obsb<-y_boostrap*s_obb
+  
+  Muestra<-data.frame(Muestra, e_boostrap, s_boostrap,y_boostrap, s_obb, y_obsb)
+  Probit <- glm(s_obs ~ x + mean_x + mean_z + z-1, data = Muestra,family= binomial(link = "probit"))
+  
+  summary(Probit)
+  
+  Muestra$sitf<-Probit$fitted.values
+  
+  Muestra$lamndait<-dnorm(Muestra$sitf)/pnorm(Muestra$sitf)
+  
+  Wooldridge<- plm(y_obs ~ x  + mean_x + mean_z + lamndait+T2+T3+T4+T5+T6+T7+T8+T9+T10, data= Muestra, subset= s_obs==1 , index=c("id", "time") , effect= "individual", model = "pooling")
+  summary(Wooldridge)
+  
+  Boostrap[1,i]<-summary(Probit)$coefficient[1]
+  Boostrap[2,i]<-summary(Probit)$coefficient[4]
+  Boostrap[3,i]<-summary(Wooldridge)$coefficient[2]
+  
+  print(i)
+  
+}
+esperanza<- apply(Boostrap, 1, mean)
+mediana<-apply(Boostrap, 1, median)
+Desvio<- apply(Boostrap, 1, sd)
+mse_result<- apply(Boostrap, 1, function(x) sqrt(mean(sum(x-1)^2)))
+desvio_abs<- apply(Boostrap, 1, function(x) mean(abs(x-1)))
+
+percentil_inf <- apply(Boostrap,1,function(x) quantile(x, probs = 0.025))
+percentil_sup <- apply(Boostrap,1,function(x) quantile(x, probs = 0.975))
+
+Umbrales_95<-cbind(percentil_inf, percentil_sup)
+
+shapiro.test(Boostrap[3,])
+alpha = 0.05
+L<-as.numeric(beta1 - qnorm((1-alpha/2))*summary(WooldridgeB)$coefficients[, "Std. Error"][2])
+H<-as.numeric(beta1 + qnorm((1-alpha/2))*summary(WooldridgeB)$coefficients[, "Std. Error"][2])
+La<-as.numeric(0.953  - qnorm(1-alpha/2)*0.066)# Estos valores surge de ejecutar el archivo xxxx en stata. 
+Ha<-as.numeric(0.953 + qnorm(1-alpha/2)*0.066)# Estos valores surge de ejecutar el archivo xxxx en stata.
+Hb<-as.numeric(Umbrales_95[3,2])
+Lb<-as.numeric(Umbrales_95[3,1])
+
+X11()
+plot(density(Boostrap[3,]), lwd = 2, col = "red",
+     main = "Two-step Wooldridge estimator ?? Model B", xlab = "??",
+     xlim = c(0.5, 1.4),  # Mínimo y máximo limites eje X
+     ylim = c(0, 5))
+abline(v = L, col = "blue", lwd = 2)
+abline(v = H, col = "blue", lwd = 2)
+abline(v = La, col = "green", lwd = 2)
+abline(v = Ha, col = "green", lwd = 2)
+abline(v = Lb, col = "chocolate", lwd = 2)
+abline(v = Hb, col = "chocolate", lwd = 2)
+
+legend(x = "topright",          # Position
+       legend = c("OLS", "Bootstrap","Avar"),  # Legend texts
+       lty = c(1, 1,1),           # Line types
+       col = c("blue", "chocolate", "green"),           # Line colors
+       lwd = 0, 
+       cex=1)   
+
+############################### MODELO C ###################################################
+Boostrap<-matrix(ncol=1000, nrow=3)
+SB<- list()
+
+for(i in 1:1000){
+  
+  j=dim(S1)[1]
+  id.train = sample(j,j, replace = TRUE) 
+  Muestra<-S1_C[id.train,]
+  
+  e_boostrap<-Muestra$resid_selec
+  s_boostrap<-gamma1*Muestra$x+gamma2*Muestra$z+Muestra$c+e_boostrap
+  y_boostrap<-beta1*Muestra$x+Muestra$a
+  s_obb<-ifelse(s_boostrap>0,1,0)
+  y_obsb<-y_boostrap*s_obb
+  
+  Muestra<-data.frame(Muestra, e_boostrap, s_boostrap,y_boostrap, s_obb, y_obsb)
+  Probit <- glm(s_obs ~ x + mean_x + mean_z + z-1, data = Muestra,family= binomial(link = "probit"))
+  
+  summary(Probit)
+  
+  Muestra$sitf<-Probit$fitted.values
+  
+  Muestra$lamndait<-dnorm(Muestra$sitf)/pnorm(Muestra$sitf)
+  
+  Wooldridge<- plm(y_obs ~ x  + mean_x + mean_z + lamndait+T2+T3+T4+T5+T6+T7+T8+T9+T10, data= Muestra, subset= s_obs==1 , index=c("id", "time") , effect= "individual", model = "pooling")
+  summary(Wooldridge)
+  
+  Boostrap[1,i]<-summary(Probit)$coefficient[1]
+  Boostrap[2,i]<-summary(Probit)$coefficient[4]
+  Boostrap[3,i]<-summary(Wooldridge)$coefficient[2]
+  
+  print(i)
+  
+}
+esperanza<- apply(Boostrap, 1, mean)
+mediana<-apply(Boostrap, 1, median)
+Desvio<- apply(Boostrap, 1, sd)
+mse_result<- apply(Boostrap, 1, function(x) sqrt(mean(sum(x-1)^2)))
+desvio_abs<- apply(Boostrap, 1, function(x) mean(abs(x-1)))
+
+percentil_inf <- apply(Boostrap,1,function(x) quantile(x, probs = 0.025))
+percentil_sup <- apply(Boostrap,1,function(x) quantile(x, probs = 0.975))
+
+Umbrales_95<-cbind(percentil_inf, percentil_sup)
+
+shapiro.test(Boostrap[3,])
+alpha = 0.05
+L<-as.numeric(beta1 - qnorm((1-alpha/2))*summary(WooldridgeC)$coefficients[, "Std. Error"][2])
+H<-as.numeric(beta1 + qnorm((1-alpha/2))*summary(WooldridgeC)$coefficients[, "Std. Error"][2])
+La<-as.numeric(0.953  - qnorm(1-alpha/2)*0.084)# Estos valores surge de ejecutar el archivo xxxx en stata. 
+Ha<-as.numeric(0.953 + qnorm(1-alpha/2)*0.084)# Estos valores surge de ejecutar el archivo xxxx en stata.
+Hb<-as.numeric(Umbrales_95[3,2])
+Lb<-as.numeric(Umbrales_95[3,1])
+
+X11()
+plot(density(Boostrap[3,]), lwd = 2, col = "red",
+     main = "Two-step Wooldridge estimator ?? Model c", xlab = "??",
+     xlim = c(0.5, 1.4),  # Mínimo y máximo limites eje X
+     ylim = c(0, 4))
+abline(v = L, col = "blue", lwd = 2)
+abline(v = H, col = "blue", lwd = 2)
+abline(v = La, col = "green", lwd = 2)
+abline(v = Ha, col = "green", lwd = 2)
+abline(v = Lb, col = "chocolate", lwd = 2)
+abline(v = Hb, col = "chocolate", lwd = 2)
+
+legend(x = "topright",          # Position
+       legend = c("OLS", "Bootstrap","Avar"),  # Legend texts
+       lty = c(1, 1,1),           # Line types
+       col = c("blue", "chocolate", "green"),           # Line colors
+       lwd = 0, 
+       cex=1)   
+
+###################### Ejercicio 2 ####################################
+
+keane <- read_dta("keane.dta")
+View(keane)
+keane <- pdata.frame(keane, index = c("id", "year"))
+keane$employ_1<-lag(keane$employ, 1)
+
+Probit1 <- glm(employ ~ employ_1, data = keane, subset=black==1, family= binomial(link = "probit"))
+summary(Probit1)
+emp_promedio <- margins(Probit1)
+pnorm(summary(Probit1)$coefficients[2]+summary(Probit1)$coefficients[1])
+pnorm(summary(Probit1)$coefficients[1])
+
+Probit2 <- glm(employ ~ employ_1 +y83+y84+y85+y86+y87, data = keane,subset=black==1,family= binomial(link = "probit"))
+
+pnorm(summary(Probit2)$coefficients[2]+summary(Probit2)$coefficients[1]+summary(Probit2)$coefficients[7])
+
+pnorm(summary(Probit2)$coefficients[1]+summary(Probit2)$coefficients[7])
+
+empleo_1981 <- ifelse(keane$y81 == 1 & keane$employ == 1,1,0)
+Tabla<-aggregate(empleo_1981 ~ id,data=keane, FUN=sum )
+keane<-merge(keane, Tabla, by="id")
+
+# Estimar un modelo probit con efectos aleatorios utilizando lme4
+model <- glmer(employ ~ employ_1+empleo_1981 +y83+y84+y85+y86+y87 + (1|id), data = keane, subset=black==1,family= binomial(link = "probit"))
+summary(model)
+
+# Obtener los resultados del modelo
+summary(model)
+# Calcular la variable "prob" utilizando los coeficientes estimados y desviaci?n est?ndar
+keane$prob<- ifelse(keane$year==87, pnorm((fixef(model)["employ_1"] + fixef(model)["empleo_1981"] * keane$empleo_1981 + fixef(model)["y87"])/sqrt(1 + VarCorr(model)$id[1]^2)), 0)
+
+# Filtrar los datos para el a?o 1987
+data_1987 <- subset(keane, year == 87)
+
+# Resumen de la variable "prob" para el a?o 1987
+summary(data_1987$prob)
+
+Regresiones_Probit1<-stargazer(Probit1, type="text")
+write.table(Regresiones_Probit1, file="Probit1.csv", sep="|", dec=",")
+Regresiones_model<-stargazer(model, type="text")
+write.table(Regresiones_model, file="model.csv", sep="|", dec=",")
