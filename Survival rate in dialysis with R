@@ -1,0 +1,171 @@
+rm(list=ls())
+setwd("C:/Users/Admin/Desktop/DIALISIS")
+
+library(lubridate)
+library(survival)
+library(survminer)
+library(ggplot2)
+library(ggpubr)
+library(readxl)
+library(dplyr)
+
+DIALISIS<- read_excel("C:/Users/Admin/Desktop/DIALISIS/COHORTE 2016 DIALISIS.xlsx")
+colnames(DIALISIS)[colnames(DIALISIS) == "RED PRESTACIONAL"] <- "red"
+colnames(DIALISIS)[colnames(DIALISIS) == "DIABETICO/A"] <- "DIABETES"
+colnames(DIALISIS)[colnames(DIALISIS) == "TIPO DE DIALISIS"] <- "TIPO"
+
+
+DIALISIS$event<-ifelse(is.na(DIALISIS$F_BAJA), 0,1)
+
+DIALISIS$Prestador<- ifelse(DIALISIS$red =="FRESENIUS MEDICAL CARE ARGENTINA S.A.", "FRESENIUS", 
+                       ifelse(DIALISIS$red=="CONFEDERACION", "CONFEDERACION", 
+                            ifelse(DIALISIS$red=="ASOCIACION", "ASOCIACION", 
+                                   ifelse(DIALISIS$red=="DIAVERUM","DIAVERUM","OTROS"))))
+
+DIALISIS$F_BAJA<-as.POSIXct(DIALISIS$F_BAJA)
+DIALISIS$F_BAJA<- as.POSIXct(ifelse(is.na(DIALISIS$F_BAJA), as.POSIXct(Sys.Date()),DIALISIS$F_BAJA))
+
+#DIALISIS$Time<-as.numeric(DIALISIS$F_BAJA-DIALISIS$`INGRESO A DIALISIS`, units="months")
+DIALISIS$Time <- as.numeric(interval(DIALISIS$`INGRESO A DIALISIS`, DIALISIS$F_BAJA) / months(1))
+DIALISIS$EDAD <- as.numeric(interval(DIALISIS$F_NACIMIENTO, DIALISIS$F_BAJA) / years(1))
+DIALISIS$rango<- ifelse(DIALISIS$EDAD <60, "MENOR DE 60", 
+                            ifelse(DIALISIS$EDAD<70 & DIALISIS$EDAD>60, "ENTRE 60 y 70",
+                                   ifelse(DIALISIS$EDAD<80 & DIALISIS$EDAD>70, "ENTRE 70 y 80", "MAYOR DE 80")))
+
+DIALISIS_FILTER<-filter(DIALISIS, Prestador!="OTROS" & `BAJA/ALTA/MOTIVO`!="BAJA POR OTROS MOTIVOS")
+
+attach(DIALISIS_FILTER)
+############# estimamos la tasa de supervivencia mediana para los distintos prestadores de dialisis#####
+km<-survfit(Surv(Time, event) ~ Prestador, data=DIALISIS_FILTER)
+ggsurvplot(km) 
+
+ggsurvplot(km) 
+
+# Customized survival curves
+ggsurvplot(km, data = DIALISIS_FILTER,
+           surv.median.line = "hv", # Add medians survival
+           
+           # Change legends: title & labels
+           legend.title = "",
+           legend.labs = c("ASOCIACION", "CONFEDERACION", "DIAVERUM", "FRESENIUS"),
+           # Add p-value and tervals
+           pval = TRUE,
+           conf.int = TRUE,
+           # Add risk table
+           risk.table = TRUE,
+           tables.height = 0.2,
+           tables.theme = theme_cleantable(),
+           ggtheme = theme_bw() # Change ggplot2 theme
+)
+median(km)
+
+km_TX<-survfit(Surv(Time, event) ~ TX, data=DIALISIS_FILTER)
+ggsurvplot(km_TX) 
+
+km_TX<-survfit(Surv(Time, event) ~ TX, data=DIALISIS_FILTER)
+ggsurvplot(km_TX) 
+
+# Customized survival curves
+ggsurvplot(km_TX, data = DIALISIS_FILTER,
+           surv.median.line = "hv", # Add medians survival
+           
+           # Change legends: title & labels
+           legend.title = "",
+           legend.labs = c("NO TRASPLANTADOS", "TRASPLANTADOS"),
+           # Add p-value and tervals
+           pval = TRUE,
+           conf.int = TRUE,
+           # Add risk table
+           risk.table = TRUE,
+           tables.height = 0.2,
+           tables.theme = theme_cleantable(),
+           ggtheme = theme_bw() # Change ggplot2 theme
+)
+median(km_TX)
+#################### Por zona geografica ####################
+km_ZONA<-survfit(Surv(Time, event) ~ ZONA, data=DIALISIS_FILTER)
+ggsurvplot(km_ZONA) 
+
+ggsurvplot(km_ZONA) 
+
+# Customized survival curves
+ggsurvplot(km_ZONA, data = DIALISIS_FILTER,
+           surv.median.line = "hv", # Add medians survival
+           
+           # Change legends: title & labels
+           legend.title = "",
+           legend.labs = c("CABA", "CENTRO", "NORTE", "PATAGONIA", "PBA"),
+           # Add p-value and tervals
+           pval = TRUE,
+           conf.int = TRUE,
+           # Add risk table
+           risk.table = TRUE,
+           tables.height = 0.2,
+           tables.theme = theme_cleantable(),
+           ggtheme = theme_bw() # Change ggplot2 theme
+)
+median(km_ZONA)
+############### por rango de edad##############3333
+km_rango<-survfit(Surv(Time, event) ~ rango, data=DIALISIS_FILTER)
+ggsurvplot(km_rango) 
+
+# Customized survival curves
+ggsurvplot(km_rango, data = DIALISIS_FILTER,
+           surv.median.line = "hv", # Add medians survival
+           
+           # Change legends: title & labels
+           legend.title = "",
+           legend.labs = c("Entre 60 y 70", "Entre 70 y 80", "Mayor de 80", "Menor de 60"),
+           # Add p-value and tervals
+           pval = TRUE,
+           conf.int = TRUE,
+           # Add risk table
+           risk.table = TRUE,
+           tables.height = 0.2,
+           tables.theme = theme_cleantable(),
+           ggtheme = theme_bw() # Change ggplot2 theme
+)
+median(km_rango)
+
+###################33 la tasa mediana de supervivencia general ###############3333
+km_tasa<-survfit(Surv(Time, event) ~ 1, data=DIALISIS_FILTER)
+ggsurvplot(km_tasa) 
+# Customized survival curves
+ggsurvplot(km_tasa, data = DIALISIS_FILTER,
+           surv.median.line = "hv", # Add medians survival
+           
+           # Change legends: title & labels
+           legend.title = "",
+           legend.labs = c("Afiliados en Diálisis"),
+           # Add p-value and tervals
+           pval = TRUE,
+           conf.int = TRUE,
+           # Add risk table
+           risk.table = TRUE,
+           tables.height = 0.2,
+           tables.theme = theme_cleantable(),
+           ggtheme = theme_bw() # Change ggplot2 theme
+)
+quantile(km_tasa, prob=0.8)
+quantile()
+km_tipo<-survfit(Surv(Time, event) ~ TIPO, data=DIALISIS_FILTER)
+
+ggsurvplot(km_tipo) 
+
+# Customized survival curves
+ggsurvplot(km_tipo, data = DIALISIS_FILTER,
+           surv.median.line = "hv", # Add medians survival
+           
+           # Change legends: title & labels
+           legend.title = "",
+           legend.labs = c("HEMODIAFILTRACION", "HEMODIALISIS", "PERITONEAL"),
+           # Add p-value and tervals
+           pval = TRUE,
+           conf.int = TRUE,
+           # Add risk table
+           risk.table = TRUE,
+           tables.height = 0.2,
+           tables.theme = theme_cleantable(),
+           ggtheme = theme_bw() # Change ggplot2 theme
+)
+median(km_tipo)
