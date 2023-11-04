@@ -1,0 +1,74 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Thu Nov 2, 2023
+@author: Admin
+"""
+
+# ...
+
+# Clear the environment
+import sys
+import os
+
+sys.path.insert(1, "C:/Users/Admin/Desktop/DIALYSIS")
+os.chdir("C:/Users/Admin/Desktop/DIALYSIS")
+
+# Import necessary libraries
+from statsmodels.tsa.arima.model import ARIMA
+import matplotlib.pyplot as plt
+import pandas as pd
+import pmdarima as pm
+from pmdarima.model_selection import train_test_split
+
+# Read the Excel file
+DATA_LDE = pd.read_excel("C:/Users/Admin/Desktop/Projections/DATA LDE.xlsx")
+# Rename the column
+DATA_LDE = DATA_LDE.rename(columns={"TOTAL TO SEP-23 CONSTANT": "Billing"})
+
+# Replace values in the 'GROUPED SPECIALTY' column
+DATA_LDE['GROUPED SPECIALTY'] = DATA_LDE['GROUPED SPECIALTY'].replace(
+    {
+        'OUTPATIENT IMAGES': 'IMAGES',
+        'IMAGES INPATIENT': 'IMAGES'
+    }
+)
+
+# Rest of the code...
+Billing_Table = DATA_LDE.groupby(['BILLING PERIOD', 'GROUPED SPECIALTY'])['Billing'].sum() / 1000000
+Billing_Table = Billing_Table.reset_index()
+
+# Filter to get the 'SPECIALIST CONSULTATION' specialty
+Specialist_Consultation_Table = Billing_Table[Billing_Table['GROUPED SPECIALTY'] == 'SPECIALIST CONSULTATION']
+
+# Create a time series
+Billing = pd.Series(Specialist_Consultation_Table['Billing'].values, index=pd.date_range(start='2021-11', periods=len(Specialist_Consultation_Table), freq='M'))
+
+# Split the data into training and testing (80% training, 20% testing)
+train, test = train_test_split(Billing, test_size=0.2)
+
+# Automatically fit an ARIMA model
+auto_arima_model = pm.auto_arima(train, seasonal=False, stepwise=True, trace=True)
+
+# Print the summary of the automatically fitted model
+print(auto_arima_model.summary())
+
+# Make forecasts, including 12 steps ahead
+forecast_values = auto_arima_model.predict(n_periods=12, alpha=0.05)
+
+# Rest of the code for plotting the predictions...
+
+# Predictions
+plt.figure(figsize=(10, 6))
+plt.plot(Billing.index, Billing, label="Original Time Series", color="blue")
+
+forecast_index = pd.date_range(start=Billing.index[-1], periods=13, freq='M')
+forecast_values = list(Billing[-1:]) + list(forecast_values)
+plt.plot(forecast_index, forecast_values, label="Predictions", color="pink", linestyle='dashed')
+
+plt.title("Specialist Consultation Billing")
+plt.xlabel("Date")
+plt.ylabel("Millions of Pesos")
+plt.legend()
+
+plt.show()
+
