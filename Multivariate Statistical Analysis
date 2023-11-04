@@ -1,0 +1,350 @@
+
+rm(list=ls())
+setwd("C:/Users/U66243/Desktop/Multivariado")
+install.packages("psych")
+install.packages("na.tools")
+library(na.tools)
+library(haven)
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+library(readxl)
+library(e1071)
+library(devtools)
+library(ggplot2)
+library(scales)
+library(psych)
+library(normtest) ###REALIZA 5 PRUEBAS DE NORMALIDAD###
+library(nortest) ###REALIZA 10 PRUEBAS DE NORMALIDAD###
+
+
+Data <- read_excel("C:/Users/U66243/Desktop/Multivariado/Data_Extract_from_IDM_AEM2022.xlsx", na="..")
+
+####################################################################################
+##################################################################################
+# PROCEDEMOS A TRABAJAR CON LA BASE Y A ORGANIZAR LA INFORMACI?N##################
+Data<-filter(Data, 
+       Data$`serie Name`=="Acceso a la electricidad (% de poblaci?n)"|
+       Data$`serie Name`=="Comercio (% del PIB)"|
+       Data$`serie Name`=="Poblaci?n rural (% de la poblaci?n total)"|
+       Data$`serie Name`=="Esperanza de vida al nacer, total (a?os)"|
+       Data$`serie Name`=="Suscripciones a telefon?a celular m?vil (por cada 100?personas)"|
+       Data$`serie Name`=="Tasa de mortalidad, beb?s (por cada 1.000 nacidos vivos)"|
+       Data$`serie Name`=="Personas que usan Internet (% de la poblaci?n)"|
+       Data$`serie Name`=="Prevalencia de desnutrici?n (% de la poblaci?n)"|
+       Data$`serie Name`=="Prevalencia de anemia en la infancia (% de menores de 5 a?os)"|
+       Data$`serie Name`=="Superficie (kil?metros cuadrados)"|
+       Data$`serie Name`=="Poblaci?n, total"|
+       Data$`serie Name`=="PIB per c?pita (US$ a precios constantes de 2010)")
+       
+Data<-Data[, c(1,2,3,4,15)]
+attach(Data)
+
+Tabla_analisis<- Data %>%
+  spread(`serie Name`, `2016 [YR2016]`) %>%
+  filter(`pa?s Code`!="LCN")%>%
+  group_by(`pa?s Code`, Pais) %>%
+  summarise(
+    Electricidad=sum(na.omit(`Acceso a la electricidad (% de poblaci?n)`)), 
+    Comercio=sum(na.omit(`Comercio (% del PIB)`)), 
+    Rural=sum(na.omit(`Poblaci?n rural (% de la poblaci?n total)`)), 
+    Esperanza_vida=sum(na.omit(`Esperanza de vida al nacer, total (a?os)`)), 
+    M?vil=sum(na.omit(`Suscripciones a telefon?a celular m?vil (por cada 100?personas)`)), 
+    Mortalidad=sum(na.omit(`Tasa de mortalidad, beb?s (por cada 1.000 nacidos vivos)`)), 
+    Desnutricion=sum(na.omit(`Prevalencia de desnutrici?n (% de la poblaci?n)`)), 
+    Anemia=sum(na.omit(`Prevalencia de anemia en la infancia (% de menores de 5 a?os)`)),
+    Internet=sum(na.omit(`Personas que usan Internet (% de la poblaci?n)`)), 
+    Superficie=sum(na.omit(`Superficie (kil?metros cuadrados)`)), 
+    poblacion=sum(na.omit(`Poblaci?n, total`)),
+    PBI=sum(na.omit(`PIB per c?pita (US$ a precios constantes de 2010)`)))
+
+Tabla_analisis <- data.frame(Tabla_analisis, row.names = Tabla_analisis$`pa?s Code`)
+Tabla_analisis<-Tabla_analisis[, -c(1,2)]
+Tabla_analisis[Tabla_analisis=="0"] <- NA
+correlaciones<-cor(na.omit(Tabla_analisis))
+Missings<-apply(Tabla_analisis, 2,function(x) sum(is.na(x)))
+
+### Remmplazamos los valores missings por la predicci?n lineal
+attach(Tabla_analisis)
+Tabla_analisis$Comercio[is.na(Comercio)] <- predict(lm(Comercio ~  Rural + Superficie, data=Tabla_analisis))
+Tabla_analisis$Rural[is.na(Rural)] <- predict(lm(Rural ~ Comercio + Desnutricion + Internet,  data=Tabla_analisis))
+Tabla_analisis$Esperanza_vida[is.na(Esperanza_vida)] <- predict(lm(Esperanza_vida ~ Electricidad + Mortalidad + Desnutricion, data=Tabla_analisis))
+Tabla_analisis$M?vil[is.na(M?vil)] <- predict(lm(M?vil ~ Internet + PBI,  data=Tabla_analisis))
+Tabla_analisis$Mortalidad[is.na(Mortalidad)] <- predict(lm(Mortalidad ~ Desnutricion + Esperanza_vida + Electricidad, data=Tabla_analisis))
+Tabla_analisis$Desnutricion[is.na(Desnutricion)] <- predict(lm(Desnutricion ~ Mortalidad + Desnutricion + Electricidad, data=Tabla_analisis))
+Tabla_analisis$Anemia[is.na(Anemia)] <- predict(lm(Anemia ~ Electricidad + Desnutricion + Mortalidad, data=Tabla_analisis))
+Tabla_analisis$Internet[is.na(Internet)] <- predict(lm(Internet ~ PBI + Desnutricion, data=Tabla_analisis))
+Tabla_analisis$PBI[is.na(PBI)] <- predict(lm(PBI ~ Internet + Esperanza_vida, data=Tabla_analisis))
+
+#######################################################################################################
+#######################################################################################################
+## PROCEDEMOS A CALCULAR LOS ESTADISTICOS DESCRIPTIVOS###########################
+
+# Calculamos el vector de medias, desv?os, asimetr?a y kurtosis de las variables de manera univariante
+
+Median <- round(apply(Tabla_analisis, 2, median), 2)
+Mean <- round(apply(Tabla_analisis, 2,mean),2)
+Sd <- round(apply(Tabla_analisis, 2,sd),2)
+CV <- round(apply(Tabla_analisis, 2, function(x) sd(x)/mean(x)),2)
+Kurtosis <- round(apply(Tabla_analisis, 2, kurtosis),2)
+skewness <- round(apply(Tabla_analisis, 2, skewness),2)
+Min<- round(apply(Tabla_analisis, 2,min),2)
+Max <- round(apply(Tabla_analisis, 2,max),2)
+Missings<-apply(Tabla_analisis, 2,function(x) sum(is.na(x)))
+
+## Construimos histogramas para las variables
+x<-c(1:6)
+m<-matrix(x,ncol=3, nrow=2)
+layout(m)
+g<-layout(m)
+layout.show(g)
+hist(Tabla_analisis$Electricidad, horizontal = TRUE, main="Energia", xlab = "")
+hist(Tabla_analisis$Comercio, horizontal = TRUE, main="Comercio", xlab = "")
+hist(Tabla_analisis$Rural, horizontal = TRUE, main="Rural", xlab = "")
+hist(Tabla_analisis$Esperanza_vida, horizontal = TRUE, main="Esperanza de vida", xlab = "")
+hist(Tabla_analisis$M?vil, horizontal = TRUE, main="M?vil", xlab = "")
+hist(Tabla_analisis$PBI, horizontal = TRUE, main="PBI pc", xlab = "")
+
+Y<-c(1:6)
+m<-matrix(Y,ncol=3, nrow=2)
+layout(k)
+l<-layout(k)
+layout.show(l)
+hist(Tabla_analisis$Mortalidad, horizontal = TRUE, main="Mortalidad", xlab = "")
+hist(Tabla_analisis$Desnutricion, horizontal = TRUE, main="Desnutricion", xlab = "")
+hist(Tabla_analisis$Anemia, horizontal = TRUE, main="Anemia", xlab = "")
+hist(Tabla_analisis$Internet, horizontal = TRUE, main="Internet", xlab = "")
+hist(Tabla_analisis$Superficie, horizontal = TRUE, main="Superficie", xlab = "")
+hist(Tabla_analisis$poblacion, horizontal = TRUE, main="Poblacion", xlab = "")
+
+Univariados<-as.data.frame(cbind(Min, Max, Median, Mean, Sd, CV, Kurtosis,  skewness))
+write.table(Univariados, file="Univariados.csv", sep="|", dec=",")
+
+######## ESTADISTICOS MULTIVARIADOS######################################################
+
+# 1) Calculamos las matrices de Varianzas y Covarianzas y correlaciones###
+#Tabla_analisis <- scale(na.omit(Tabla_analisis[,3:ncol(Tabla_analisis)]))
+varianzas <- var(Tabla_analisis)
+correlaciones <- cor(Tabla_analisis)
+
+write.table(varianzas, file="varianzas.csv", sep="|", dec=",")
+write.table(correlaciones, file="correlaciones.csv", sep="|", dec=",")
+
+### Calculamos la traza y el determinante de la Matriz para calcular la varianza total y la varianza media
+
+Traza_s<-sum(diag(varianzas))
+Determinante_S<-det(varianzas)
+Varianza_media<-sum(diag(varianzas))/dim(varianzas)[1]
+Varianza_efectiva<-det(varianzas)^(1/dim(varianzas)[1])
+
+Varianzas_especificas_S<-c()
+
+for (i in 1:ncol(varianzas)) {
+  
+  Varianzas_especificas_S[i]=diag(varianzas)[i]/sum(diag(varianzas))
+  
+}
+
+Traza_R<-sum(diag(correlaciones))
+Determinante_R<-det(correlaciones)
+Varianza_media_R<-sum(diag(correlaciones))/dim(correlaciones)[1]
+Varianza_efectiva_R<-det(correlaciones)^(1/dim(correlaciones)[1])
+
+Varianzas_especificas_R<-c()
+
+for (i in 1:ncol(correlaciones)) {
+  
+  Varianzas_especificas_R[i]=diag(correlaciones)[i]/sum(diag(correlaciones))
+  
+}
+
+Dependencia_efectiva <- 1- det(correlaciones)^(1/(dim(correlaciones)[1]-1))
+
+NM<-mardia(scale(Tabla_analisis))
+
+########################################
+##########PCA###################3
+
+#Tabla_analisis <- scale(na.omit(Tabla_analisis[,3:ncol(Tabla_analisis)]))
+pc <- princomp(scale(Tabla_analisis), cor=T)
+summary(pc)
+loadings<-pc$loadings
+autovales<-eigen(cor(Tabla_analisis))$values
+
+write.table(loadings, file="loadings.csv", sep="|", dec=",")
+
+#######################################################
+##################Expresamos las observaciones en termino de las 2 primeras PCA
+
+loadings_2<-as.vector(pc$loadings[, c(1,2)])
+Matrix_loadings<-matrix(loadings_2, ncol=2, nrow=12)
+
+Coordenadas<-as.matrix(Tabla_analisis) %*% Matrix_loadings
+plot(Coordenadas)
+summary(Coordenadas)
+
+############################################
+##################Graficamos el biplot#############
+
+screeplot(pc, col="red", pch=13, type="lines", cex= 2, lwd=2, main="Componentes Principales")
+
+require(ggbiplot)
+
+ggbiplot(pc)    
+
+bplot= ggbiplot(pcobj=pc, 
+                choices= c(1,2), 
+                obs.scale =1, var.scale = 3,
+                labels = rownames(Tabla_analisis), 
+                varname.size = 3, 
+                varname.abbrev = F, 
+                var.axes = T, 
+                circle=T)
+print(bplot)
+
+pcv <- princomp(Tabla_analisis)
+
+summary(pcv)
+loadingv<-pcv$loadings
+eigen(var(Tabla_analisis))$values
+screeplot(pcc, col="red", pch=13, type="lines", cex= 2, lwd=2, main="Componentes Principales")
+
+write.table(loadingv, file="loadings_v.csv", sep="|", dec=",")
+
+bplot= ggbiplot(pcobj=pcc, 
+                choices= c(1,2), 
+                obs.scale = 4, var.scale = 2,
+                labels = rownames(correlaciones), 
+                varname.size = 3, 
+                varname.abbrev = F, 
+                var.axes = T, 
+                circle=T, 
+                ellipse=T)
+
+print(bplot)
+
+write.table(varianzas, file="varianzas.csv", sep="|", dec=",")
+############################################################
+############################################################
+############Analisis de Clusters############################
+
+dm <- dist(scale(Coordenadas))
+
+cs <- hclust(dm, method = "complete")
+plot(cs, cex=0.6, hang=-1)
+cs <- hclust(dm, method = "single")
+plot(cs, cex=0.6, hang=-1)
+
+n <- nrow(Coordenadas)
+wss <- rep(0, 6)
+wss[1] <- (n - 1) * sum(sapply(Coordenadas, var))
+for (i in 2:6) {wss[i] <- sum(kmeans(Coordenadas, centers = i)$withinss)}
+
+plot(1:6, wss, type = "b", xlab = "Number of groups", ylab = "Within groups sum of squares")
+#######################################################################
+#################### An?lisis factorial###############################
+## Modelo con un unico factor
+
+modelo1 <- psych::fa(scale(Tabla_analisis), nfactors = 1, rotate = 'none', fm = 'ml', max.iter = 1000)
+S<-var(scale(Tabla_analisis))
+L<-as.matrix(unclass(modelo1$loadings))
+LL_tr<-L %*% t(L)
+e2 <- 1-modelo1$communality
+uu<-diag(e2)
+V0<-LL_tr+uu
+det(V0)
+det(S)
+det(V0)/det(S)
+R2<-1-(det(uu)/det(V0))^(1/12)
+
+## Modelo con 2 factores
+modelo2<- psych::fa(scale(Tabla_analisis), nfactors = 2, rotate = 'none', fm = 'ml', max.iter = 1000)
+S<-var(scale(Tabla_analisis))
+L<-as.matrix(unclass(modelo2$loadings))
+LL_tr<-L %*% t(L)
+e2 <- 1-modelo2$communality
+uu<-diag(e2)
+V0<-LL_tr+uu
+det(V0)
+det(S)
+det(V0)/det(S)
+R2<-1-(det(uu)/det(V0))^(1/12)
+
+# Modelo con 3 factores
+modelo3<- psych::fa(scale(Tabla_analisis), nfactors = 3, rotate = 'none', fm = 'ml', max.iter = 1000)
+S<-var(scale(Tabla_analisis))
+L<-as.matrix(unclass(modelo3$loadings))
+LL_tr<-L %*% t(L)
+e2 <- 1-modelo3$communality
+uu<-diag(e2)
+V0<-LL_tr+uu
+det(V0)
+det(S)
+det(V0)/det(S)
+R2<-1-(det(uu)/det(V0))^(1/12)
+R2
+
+# Modelo con 4 factores
+modelo4<- psych::fa(scale(Tabla_analisis), nfactors = 4, rotate = 'none', fm = 'ml', max.iter = 1000)
+S<-var(scale(Tabla_analisis))
+L<-as.matrix(unclass(modelo4$loadings))
+LL_tr<-L %*% t(L)
+e2 <- 1-modelo4$communality
+uu<-diag(e2)
+V0<-LL_tr+uu
+det(V0)
+det(S)
+det(V0)/det(S)
+R2<-1-(det(uu)/det(V0))^(1/12)
+R2
+
+modelo1_loading<-cbind(modelo1$Structure, modelo1$communalities, modelo1$uniquenesses)
+modelo2_loading<-cbind(modelo2$Structure, modelo2$communalities, modelo2$uniquenesses)
+modelo3_loading<-cbind(modelo3$Structure, modelo3$communalities, modelo3$uniquenesses)
+modelo4_loading<-cbind(modelo4$Structure, modelo4$communalities, modelo4$uniquenesses)
+
+
+write.table(modelo1_loading, file="modelo1.csv", sep="|", dec=",")
+write.table(modelo2_loading, file="modelo2.csv", sep="|", dec=",")
+write.table(modelo3_loading, file="modelo3.csv", sep="|", dec=",")
+write.table(modelo4_loading, file="modelo4.csv", sep="|", dec=",")
+
+# Funcion de test de verosimilitud 
+m <- 5
+psych::fa
+alpha <- 0.05
+ftest <- function(Tabla_analisis,m,alpha){
+  #m <- 5
+  modelo <- psych::fa(scale(Tabla_analisis), nfactors = m, rotate = 'none', fm = 'ml', max.iter = 1000)
+  modelo$PVAL
+  #modelo$values
+  #alpha <- 0.05
+  p <- ncol(Tabla_analisis)-1
+  n <- nrow(Tabla_analisis)
+  Co <- var(scale(Tabla_analisis))
+  e2 <- 1-modelo$communality
+  L <- as.matrix(unclass(modelo$loadings))
+  LL_tr <- L %*% t(L)
+  uu <- diag(e2)
+  Vo <- LL_tr+uu
+  ln0 <- log(det(Vo))
+  ln1 <- log(det(Co))
+  num <- ((n-1)-((2*p+4*m+5)/6))
+  est <-  num*(ln0 - ln1)
+  aic <-  n*(ln0 - ln1)-((p-m)^(2)-p-m)
+  gl <-  (((p-m)^(2))-(p+m))/2
+  v_c <- qchisq(1-alpha,gl)
+  pv <- pchisq(est,gl,lower.tail = F)
+  #print(paste0("El p-value es ",pv))
+  return(round(pv,2))
+}
+v1<-ftest(Tabla_analisis, 1,0.05)
+v2<-ftest(Tabla_analisis, 2,0.05)
+v3<-ftest(Tabla_analisis, 3,0.05)
+v3<-ftest(Tabla_analisis, 4,0.05)
+v4<-ftest(Tabla_analisis, 5,0.05)
+v5<-ftest(Tabla_analisis, 6,0.05)
+
+
+Tabla<-cbind("numero de factores"=c(1:6), "pvalue"=c(v1, v2, v3, v4, v5))
+
