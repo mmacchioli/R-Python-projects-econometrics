@@ -1,0 +1,397 @@
+
+rm(list=ls())
+
+#install.packages('FNN')
+#install.packages("glmnet")
+library(dplyr)
+library(FNN)
+library(glmnet)
+library(psych)
+library(na.tools)
+library(haven)
+library(dplyr)
+library(tidyr)
+library(tidyverse)
+library(readxl)
+library(e1071)
+library(devtools)
+library(ggplot2)
+library(scales)
+library(mvnormalTest)
+library(splines)
+library(normtest) ###REALIZA 5 PRUEBAS DE NORMALIDAD###
+library(nortest) ###REALIZA 10 PRUEBAS DE NORMALIDAD###
+library(stargazer)
+
+setwd("C:/Users/U66243/Desktop/TESIS")
+
+car_prices<- read.csv("C:/Users/U66243/Desktop/TESIS/Car_Prices_Poland_Kaggle.csv")
+
+car_prices$mark<-as.factor(car_prices$mark)
+car_prices$model<-as.factor(car_prices$model)
+car_prices$generation_name<-as.factor(car_prices$generation_name)
+car_prices$city<-as.factor(car_prices$city)
+car_prices$province<-as.factor(car_prices$province)
+car_prices$fuel<-as.factor(car_prices$fuel)
+
+set.seed(1)
+
+n=dim(car_prices)[1]
+id.train = sample(n,0.5*n, replace = FALSE) # que es id.train?
+Missings<-apply(car_prices, 2,function(x) sum(is.na(x)))
+
+market<-lm(price~ model + mark + generation_name + fuel+ province, data= car_prices, subset = id.train)
+summary(market)
+market_predict<-as.vector(scale(predict(market, newdata = car_prices)))
+car_prices<-scale(car_prices[, -c(1,2,3,4,8,9,10)])
+car_prices<-as.data.frame(cbind(car_prices, market_predict))
+X11()
+boxplot(car_prices, notch = TRUE, main= "Sin Correccion de Outliers")
+
+Malhanobis<- mahalanobis(car_prices, colMeans (car_prices), cov (car_prices))
+car_prices<-data.frame(car_prices, Malhanobis)
+X11()
+boxplot(car_prices$Malhanobis, notch = TRUE)
+ # abline(v = quantile(R2a,0.975), col = 'red')
+quantile(car_prices$Malhanobis,0.99)
+car_prices<-car_prices[car_prices$Malhanobis<quantile(car_prices$Malhanobis,0.99), ]
+car_prices <- na.omit(car_prices)
+
+###################################################################################################
+######################### MODELO LINEAL Y PCA #####################################################
+
+n=dim(car_prices)[1]
+id.train = sample(n,0.5*n, replace = FALSE) # que es id.train?
+
+model<-lm(price~ year + mileage + vol_engine + market_predict, data= car_prices[id.train,])
+summary(model)
+predict.lin<-predict(model, newx=car_prices$price[-id.train])
+ecm.lin<-(sum(predict.lin-car_prices$price[-id.train])^2)/(n-length(id.train))
+ecm.lin
+
+car_prices<-car_prices[,-6 ]
+
+X11()
+boxplot(car_prices, notch = TRUE, main= "Con Correci?n de Mahalanobis")
+
+n=dim(car_prices)[1]
+
+set.seed(1)
+Boostrap_Mco<-c()
+for(i in 1: 1000){
+  id= sample(n, 50000, rep=T)
+  
+  model<-lm(price~ year + mileage + vol_engine + market_predict, data= car_prices[id,])
+  summary(model)
+  ouput.lin<-predict(model, newx=car_prices[-id,])
+  Boostrap_Mco[i]<-(sum(ouput.lin-car_prices$price[-id])^2)/(n-50000)
+  print(i)
+}
+
+sd(Boostrap_Mco)#Estimaci?n del error estandard asociado al estimador R^2_aj
+mean(Boostrap_Mco)
+Index_MCO<-c(seq(1,1000, by=1))
+cbind(Index_MCO, Boostrap_Mco)
+
+plot(Index_MCO, log(Boostrap_Mco), type = 'b', xlab = 'k', ylab = 'Estimacion log(MSE)', main= "Boostrap MCO")
+abline(h= mean(log(Boostrap_Mco)), lwd=2, col="red")
+
+hist(log(Boostrap_Mco))
+
+Tabla_MCO<-stargazer(model, type="text")
+MCO<-write.table(Tabla_MCO, "Tabla_MCO.csv", sep = ";")
+
+############################# COMPONENTES PRINCIPALES ############################
+
+pc <- princomp((car_prices[, -c(4)]), cor=T)
+summary(pc)
+loadings<-pc$loadings
+autovales<-eigen(cor(car_prices[, -4]))$values
+loadings_2<-as.vector(pc$loadings[, c(1,2)])
+Matrix_loadings<-matrix(loadings_2, ncol=2, nrow=4)
+
+Coordenadas<-as.matrix(scale(car_prices[, -c(4)])) %*% Matrix_loadings
+Coordenadas<-as.data.frame(cbind(car_prices[,4], Coordenadas))
+
+PCA_Regress<-lm(V1~ V2 + V3, data= Coordenadas[id.train,])
+summary(PCA_Regress)
+predict.PCA<-predict(PCA_Regress, newx=Coordenadas$V1[-id.train])
+ecm.PCA<-(sum(predict.PCA-Coordenadas$V1[-id.train])^2)/(n-length(id.train))
+ecm.PCA
+
+
+Boostrap_pca<-c()
+for(i in 1: 1000){
+  id= sample(n, 10000, rep=F)
+  
+  reg.PCA=lm(V1 ~ V2 + V3,
+                 data = Coordenadas, subset = id)
+  
+  pred._pca = predict(reg.PCA, newdata = Coordenadas[-id,])
+  Boostrap_pca[i]<-sum(pred._pca - Coordenadas$V1[-id])^2/(dim(Coordenadas)[1] - length(id))# rss. (de 0.666 a 0.150!)
+  print(i)
+}
+
+sd(Boostrap_pca)#Estimaci?n del error estandard asociado al estimador R^2_aj
+mean(Boostrap_pca)
+x11();
+hist(Boostrap_pca, main = expression(paste('Distribuci?n emp?rica del ',Boostrap_spline)), freq=T)
+
+plot(Index_MCO, log(Boostrap_pca), type = 'b', xlab = 'k', ylab = 'Estimacion log(MSE)', main= "Boostrap PCA")
+abline(h= mean(log(Boostrap_pca)), lwd=2, col="blue")
+
+cbind(ecm.PCA, ecm.lin, mean(Boostrap_pca),sd(Boostrap_pca),mean(Boostrap_Mco),  sd(Boostrap_Mco) )
+
+#######################################################################################
+####################### Regresion Polinomica + Lasso#########################################
+
+set.seed(1)
+n=dim(car_prices)[1]
+id.train = sample(n,0.5*n, replace = FALSE) # que es id.train?
+
+car_prices_matrix<-as.matrix(car_prices)
+
+Polinomix<-poly(car_prices_matrix[, -c(4)],7)
+Polinomix<-cbind(car_prices_matrix[,4], Polinomix)
+
+gril<-exp(seq(-5,5, length=100))
+
+reg.lasso<-glmnet(x=Polinomix[id.train,-1],
+                  y=Polinomix[id.train,1],
+                  family='gaussian',
+                  alpha = 1,
+                  lambda = gril, 
+                  scale=F)
+
+cv.out<-cv.glmnet(x=Polinomix[id.train,-1],
+                  y=Polinomix[id.train,1],
+                  family='gaussian',
+                  alpha = 1,
+                  lambda = gril, 
+                  nfolds = 5)
+
+cv.out
+dev.off();x11()
+plot(cv.out)
+
+bestlam<-cv.out$lambda.1se
+
+reg.lasso<-glmnet(x=Polinomix[id.train,-1],
+                  y=Polinomix[id.train,1],
+                  family='gaussian',
+                  alpha = 1,
+                  lambda = bestlam, 
+                  scale=F)
+
+predict.lasso<-predict(reg.lasso, s=bestlam, newx=Polinomix[-id.train,-1])
+
+ecm.lasso<-sum(predict.lasso - Polinomix[-id.train,1])^2/(n-58904)
+ecm.lasso
+
+coef_sig<-which(reg.lasso$beta!=0)
+Polinomix<-Polinomix[, coef_sig]
+
+Boostrap_lasso<-c()
+for(i in 1: 1000){
+  id= sample(n, 10000, rep=F)
+  
+  reg.lasso<-glmnet(x=Polinomix[id,-1],
+                    y=Polinomix[id,1],
+                    family='gaussian',
+                    alpha = 1,
+                    lambda = bestlam, 
+                    scale=F)
+  
+  ouput.lasso<-predict(reg.lasso, s=bestlam, newx=Polinomix[-id,-1])
+  Boostrap_lasso[i]<-sum(ouput.lasso - Polinomix[-id,1])^2/(n-10000)
+  print(i)
+}
+
+sd(Boostrap_lasso)#Estimaci?n del error estandard asociado al estimador R^2_aj
+mean(Boostrap_lasso)
+x11();
+hist(Boostrap_lasso, main = expression(paste('Distribuci?n emp?rica del ',Boostrap_lasso)), freq=T)
+sd(Boostrap_Mco)#Estimaci?n del error estandard asociado al estimador R^2_aj
+mean(Boostrap_Mco)
+
+
+###############################################################
+################################################################################
+## Regresión con k--vecinos:
+set.seed(1)
+n=dim(car_prices)[1]
+id.train = sample(n,0.5*n, replace = FALSE) # que es id.train?
+
+train = car_prices[ id.train, ] # <- indica que filas de Train selecciono para train.
+val= car_prices[ -id.train, ]
+kNN.reg = knn.reg(train = car_prices[, -c(4)] , test = NULL, y = car_prices$price , k = 7)
+summary(kNN.reg)
+sum(kNN.reg$residuals^2) # Suma de cuadrados residuales
+
+1- sum(kNN.reg$residuals^2) / sum( (car_prices$price-mean(car_prices$price))^2 ) # R^2 = 1-SCR/SCT
+
+Knn.predict<-kNN.reg$pred
+
+head(kNN.reg$pred, 3)# Predicciones (valores de Y predichos para las primeras 3 obs).
+#############################################################
+################### optimizamos k ##########################
+
+k.par = c(seq(1,100, by=2))
+MSE = c() # Aquí guardo el error cuadrático medio fuera de la muestra.
+for(i in 1:length(k.par)){
+  kNNreg = knn.reg(train = as.matrix(train[,c(1,2,3,5)]) ,
+                   y = as.matrix(train[,4]),
+                   test = as.matrix(val[,c(1,2,3,5)]),
+                   k = k.par[i]
+  )
+  pred = kNNreg$pred
+  MSE[i] = sum( (pred - val[,4])^2 ) / 58907
+  print(i)
+}
+
+Tabla1<-cbind(k.par, MSE)
+plot(Tabla1)
+
+which(MSE == min(MSE))
+ecm_k_mean<-min(MSE)
+
+k.par[which(MSE == min(MSE))] # k-óptimo estimado por VC: Val-Set app.
+x11()
+plot(k.par, MSE, type = 'b', xlab = 'k', ylab = 'Estimación MSE')
+
+Boostrap_kmean<-c()
+for(i in 1: 1000){
+  id= sample(n, 10000, rep=T)
+  
+  kNNreg = knn.reg(train = as.matrix(car_prices[id,c(1,2,3,5)]) ,
+                   y = as.matrix(car_prices[id,4]),
+                   test = as.matrix(car_prices[-id,c(1,2,3,5)]),
+                   k = 5)
+  output_kmean = kNNreg$pred 
+  Boostrap_kmean[i] = sum( (pred - car_prices$price[-id])^2 ) / (n-10000)
+  print(i)
+}
+
+sd(Boostrap_kmean)#Estimaci?n del error estandard asociado al estimador R^2_aj
+mean(Boostrap_kmean)
+
+x11();
+hist(Boostrap_kmean, main = expression(paste('Distribuci?n emp?rica del ',Boostrap_kmean)), freq=T)
+
+jb.norm.test(Boostrap_kmean)
+frosini.norm.test(Boostrap_kmean)
+shapiro.test(Boostrap_kmean)
+
+MSE_boostrap<-rbind(kmean, MCO)
+
+x11();
+ggplot(data = MSE_boostrap,
+       mapping = aes(x = rep(1:1000,2),
+                     y = Boostrap,
+                     #ylim=c(-10,10),
+                     color = variable)) +
+  geom_line()
+
+
+# El valor estimado como adecuado para $k$ es 10
+###############################################################################
+######################### SVM BOOSTRAP#######################################
+set.seed(1)
+n=dim(car_prices)[1]
+id.train = sample(n,0.5*n, replace = FALSE) 
+
+gamma<-c()
+cost<-c()
+
+for(i in 1:100){
+  id = sample(n,100, replace = T) # Re-muestreo con reemplazamiento
+svm.rad<-tune.svm(price ~., 
+                  data=car_prices[id,],
+                  type='eps-regression',
+                  cros=5,
+                  kernel= "radial", 
+                  cost=c(1,5,10,100),
+                  gamma=c(1,10,100,1000))
+gamma[i]<-svm.rad$best.parameters[1,1]
+cost[i]<-svm.rad$best.parameters[1,2]
+print(i)
+}
+
+mode <- function(x) {
+  return(as.numeric(names(which.max(table(x)))))
+}
+
+mode(gamma)
+mode(cost)
+
+B = seq(1:1000); #(Cantidad de re-muestras)
+MSE_SVM = c(); # Aqu? guardo los valores de los theta* (ver slide 13).
+
+for(i in 1:length(B)){
+ id = sample(n,10000, replace = T) # Re-muestreo con reemplazamiento
+  svm.rad<-svm(price ~., 
+              data=car_prices[id,],
+              type='eps-regression',
+              cros=5,
+              kernel= "radial", 
+              cost=5,
+              gamma=1)
+ouput = predict(svm.rad, newdata = car_prices[-id,])
+MSE_SVM[i]= sum( (ouput - car_prices$price[-id])^2  ) / (n-10000) # A comparar con redes en la próxima clase.
+print(i)
+}
+
+sd(MSE_SVM)#Estimaci?n del error estandard asociado al estimador R^2_aj
+ecm_svm=mean(MSE_SVM)
+x11();
+hist(MSE_SVM, main = expression(paste('Distribuci?n emp?rica del ',MSE_SVM)), freq=T)
+
+jb.norm.test(MSE_SVM)
+frosini.norm.test(MSE_SVM)
+shapiro.test(MSE_SVM)
+
+#############################################################################
+###############################################################################
+######################### BOOSTRAP #######################################
+remove(car_prices_matrix)
+remove(model)
+remove(pc)
+remove(Polinomic)
+
+
+SVM<-data.frame(rep("SVM",1000),log(MSE_SVM), 1000)
+names(SVM)[1]<-paste("variable")
+names(SVM)[2]<-paste("Boostrap")
+
+lasso<-data.frame(rep("lasso",1000),log(Boostrap_lasso),1000)
+names(lasso)[1]<-paste("variable")
+names(lasso)[2]<-paste("Boostrap")
+
+kmean<-data.frame(rep("kmean",1000),log(Boostrap_kmean),1000)
+names(kmean)[1]<-paste("variable")
+names(kmean)[2]<-paste("Boostrap")
+
+MCO<-data.frame(rep("MCO",1000),log(Boostrap_Mco), 1000)
+names(MCO)[1]<-paste("variable")
+names(MCO)[2]<-paste("Boostrap")
+
+MSE_boostrap<-rbind(kmean, SVM, MCO, lasso)
+
+x11();
+ggplot(data = MSE_boostrap,
+       mapping = aes(x = rep(1:1000,4),
+                     y = Boostrap,
+                     #ylim=c(-10,10),
+                     color = variable)) +
+  geom_line()
+
+Resum<-matrix(ncol=2, nrow=6)
+
+lasso<-c(sd(Boostrap_lasso), mean(Boostrap_lasso))
+mco<-c(sd(Boostrap_Mco), mean(Boostrap_Mco))
+kmean<-c(sd(Boostrap_kmean), mean(Boostrap_kmean))
+pca<-c(sd(Boostrap_pca), mean(Boostrap_pca))
+spline<-c(sd(Boostrap_spline), mean(Boostrap_spline))
+svm<-c(sd(MSE_SVM), mean(MSE_SVM))
+
+Tabla<-cbind(lasso, mco, kmean, pca, spline, svm)
